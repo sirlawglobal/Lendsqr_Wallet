@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 import { WalletController } from './wallet.controller';
 import { WalletService } from './wallet.service';
-import { JwtModule } from '@nestjs/jwt';
 
 @Module({
   imports: [JwtModule.register({})],

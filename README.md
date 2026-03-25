@@ -1,98 +1,149 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Lendsqr Wallet MVP
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A Minimum Viable Product (MVP) wallet service built as part of the Lendsqr engineering assessment. It provides core functionality for user onboarding, funding, transfers, and withdrawals, paired with faux token-based authentication and integration with the Lendsqr Adjutor Karma blacklist API.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Core Features
+1. **User Onboarding & Authentication**: Account creation with validation. Users listed in the Lendsqr Adjutor Karma blacklist are structurally denied onboarding. Includes faux token-based auth using JWTs.
+2. **Wallet Management**: Every user has an auto-provisioned wallet upon registration.
+3. **Account Funding**: Users can fund their wallets.
+4. **Peer-to-Peer Transfers**: Users can transfer funds between their wallets and other users' wallets via email.
+5. **Withdrawals**: Users can withdraw funds from their wallets.
 
-## Description
+---
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Tech Stack
+- **Framework**: [NestJS](https://nestjs.com/) (Node.js/TypeScript)
+- **Database**: MySQL 8.0
+- **ORM**: [KnexJS](https://knexjs.org/) (Query Builder for Node)
+- **Testing**: Jest (Comprehensive unit test coverage)
+- **Validation**: `class-validator` & `class-transformer`
 
-## Project setup
+---
 
-```bash
-$ npm install
+## E-R Diagram (Database Schema)
+
+The core database architecture consists of three tables mapping fundamental entities mapping user information, wallets, and their transactional movement.
+
+```mermaid
+erDiagram
+    USERS ||--|| WALLETS : "has one"
+    USERS ||--o{ TRANSACTIONS : "performs"
+
+    USERS {
+        int id PK
+        string name
+        string email UK
+        string phone UK
+        string password_hash
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    WALLETS {
+        int id PK
+        int user_id FK, UK
+        decimal balance "Default 0.00"
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    TRANSACTIONS {
+        int id PK
+        int user_id FK
+        enum type "'credit' or 'debit'"
+        decimal amount
+        string reference UK
+        text description
+        timestamp created_at
+    }
 ```
 
-## Compile and run the project
+---
+
+## Setup & Running Locally
+
+### 1. Prerequisites
+- Docker & Docker Compose (for the MySQL database)
+- Node.js (LTS recommended)
+- npm or yarn
+
+### 2. Environment Configuration
+Clone the repository, verify `.env` is setup. A sample `.env.example` has been provided.
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+cp .env.example .env
 ```
+Ensure you add your actual Adjutor API Key to `ADJUTOR_API_KEY`.
 
-## Run tests
+### 3. Start Database (Docker)
+A `docker-compose.yml` file is provided to spin up MySQL and phpMyAdmin.
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+docker-compose up -d
 ```
 
-## Deployment
+### 4. Install Dependencies
+```bash
+npm install
+```
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### 5. Run Database Migrations
+Run the Knex migrations to scaffold the tables.
+```bash
+npm run migrate
+```
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 6. Start the Server
+```bash
+# development mode
+npm run start:dev
+```
+
+The server will be available at `http://localhost:3000`.
+
+---
+
+## Testing
+
+The project has comprehensive unit tests covering positive and negative edge cases across authentication, JWT validation, verification (Karma API), and wallet transactions (fund, transfer, withdraw, concurrency protection).
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+# run unit tests
+npm test
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+---
 
-## Resources
+## API Documentation
 
-Check out a few resources that may come in handy when working with NestJS:
+### Authentication
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+**1. Register Account**
+- `POST /auth/register`
+- Body: `{ "name": "John Doe", "email": "john@doe.com", "phone": "08012345678", "password": "securepassword" }`
+- Note: Registration will fail if the phone number is on the Adjutor Karma Blacklist.
 
-## Support
+**2. Login**
+- `POST /auth/login`
+- Body: `{ "email": "john@doe.com", "password": "securepassword" }`
+- Returns: `{ "token": "jwt..." }`
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### Wallet Operations (Requires Authorization Header)
+Include the JWT token in the headers for all wallet routes: `Authorization: Bearer <token>`
 
-## Stay in touch
+**1. Get Balance**
+- `GET /wallet/balance`
+- Returns current wallet balance.
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+**2. Fund Wallet**
+- `POST /wallet/fund`
+- Body: `{ "amount": 1000, "reference": "opt_ref_123" }`
 
-## License
+**3. Transfer Funds**
+- `POST /wallet/transfer`
+- Body: `{ "recipientEmail": "jane@doe.com", "amount": 500 }`
+- Note: Checks sender balances to prevent overdawing, explicitly prevents self-transfers, records 2 transaction ledger entries.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+**4. Withdraw Funds**
+- `POST /wallet/withdraw`
+- Body: `{ "amount": 250 }`

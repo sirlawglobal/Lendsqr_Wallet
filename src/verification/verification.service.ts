@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
+import axios, { AxiosInstance } from 'axios';
+import { IKarmaResponse } from '../common/interfaces';
 
 @Injectable()
 export class VerificationService {
-  private readonly axiosInstance;
+  private readonly axiosInstance: AxiosInstance;
 
-  constructor(private configService: ConfigService) {
+  constructor(private readonly configService: ConfigService) {
     this.axiosInstance = axios.create({
       baseURL: 'https://adjutor.lendsqr.com/v2/verification',
       headers: {
@@ -15,12 +16,15 @@ export class VerificationService {
     });
   }
 
-  async checkKarma(identity: string): Promise<any> {
+  async checkKarma(identity: string): Promise<IKarmaResponse> {
     try {
-      const { data } = await this.axiosInstance.get(`/karma/${identity}`);
+      const { data } = await this.axiosInstance.get<IKarmaResponse>(`/karma/${identity}`);
       return data;
-    } catch (error: any) {
-      return error.response?.data || { status: 'error' };
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error) && error.response?.data) {
+        return error.response.data as IKarmaResponse;
+      }
+      return { status: 'error', message: 'Karma verification service unavailable' };
     }
   }
 }
