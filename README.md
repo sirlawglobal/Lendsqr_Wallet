@@ -123,7 +123,7 @@ npm run migrate
 npm run start:dev
 ```
 
-The server will be available at `http://localhost:3000`.
+The server will be available at `https://akanji-lawrence-lendsqr-be-test.onrender.com`.
 
 ---
 

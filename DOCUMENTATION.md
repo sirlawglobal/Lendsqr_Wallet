@@ -46,7 +46,7 @@ The Lendsqr Wallet MVP is a robust, secure, and scalable wallet service built us
 ## 4. Path to Service
 
 ### Base URL
-Open the project locally at: `http://localhost:3000`
+Open the project on render at: `https://akanji-lawrence-lendsqr-be-test.onrender.com`
 
 ### API Documentation Overview
 The following core endpoints are available:
