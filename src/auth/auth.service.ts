@@ -9,6 +9,7 @@ import { CustomException } from '../common/exceptions/custom.exception';
 import { IUser } from '../common/interfaces';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { createId } from '@paralleldrive/cuid2';
 
 @Injectable()
 export class AuthService {
@@ -17,7 +18,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
     private readonly verificationService: VerificationService,
-  ) {}
+  ) { }
 
   async register(registerDto: RegisterDto) {
     const { name, email, phone, password } = registerDto;
@@ -39,18 +40,23 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     return this.knex.transaction(async (trx: Knex.Transaction) => {
-      const [userId] = await trx('users')
+      const newUserId = createId();
+
+      await trx('users')
         .insert({
+          id: newUserId,
           name,
           email: email.toLowerCase(),
           phone: phone.trim(),
           password_hash: hashedPassword,
-        })
-        .returning('id');
+        });
 
-      const resolvedUserId = typeof userId === 'object' ? userId.id : userId;
-
-      await trx('wallets').insert({ user_id: resolvedUserId, balance: 0 });
+      await trx('wallets').insert({ user_id: newUserId, balance: 0 });
+      
+      await trx('outbox').insert({
+        event_type: 'ACCOUNT_CREATED',
+        payload: JSON.stringify({ userId: newUserId, name, email }),
+      });
 
       return { message: 'Account created successfully' };
     });
@@ -67,7 +73,7 @@ export class AuthService {
     }
 
     const token = this.jwtService.sign(
-      { userId: user.id },
+      { userId: user.id, role: user.role },
       {
         secret: this.configService.get<string>('JWT_SECRET'),
         expiresIn: '1d',

@@ -1,5 +1,6 @@
 import { Request } from 'express';
 
 export interface IAuthenticatedRequest extends Request {
-  userId: number;
+  userId: string;
+  userRole: 'user' | 'admin';
 }

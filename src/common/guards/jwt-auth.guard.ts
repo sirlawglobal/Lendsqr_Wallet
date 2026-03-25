@@ -20,6 +20,7 @@ export class JwtAuthGuard implements CanActivate {
         secret: this.configService.get<string>('JWT_SECRET'),
       });
       request.userId = payload.userId;
+      request.userRole = payload.role;
       return true;
     } catch {
       throw new UnauthorizedException('Invalid token');
