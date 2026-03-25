@@ -11,7 +11,7 @@ The Lendsqr Wallet MVP is a robust, secure, and scalable wallet service built us
 - **Robust Security**: Hashed passwords (bcrypt), JWT-based authentication, and request throttling.
 - **External Integration**: Parallel verification against the Lendsqr Adjutor Karma API for both phone and email.
 - **Reliable Messaging**: Implementation of an **Outbox Pattern** to ensure that wallet-related events (like notifications or external syncs) are processed even if the primary transaction succeeded but the subsequent action failed.
-- **Performance Optimization**: In-memory caching for blacklisted identities to reduce redundant API calls.
+- **Performance Optimization**: Local database blacklist lookup to avoid redundant external API calls.
 
 ## 2. Tech Stack & Rationale
 
@@ -22,7 +22,7 @@ The Lendsqr Wallet MVP is a robust, secure, and scalable wallet service built us
 | **KnexJS** | Query Builder | Offers fine-grained control over SQL queries compared to heavy ORMs, while providing a powerful migration system and type-safe query building. |
 | **JWT** | Authentication | Stateless, secure way to handle user sessions across multiple requests. |
 | **CUID2** | ID Generation | Provides secure, collision-resistant, and URL-friendly unique identifiers for users and entities, superior to standard UUIDs for database performance. |
-| **Cache Manager** | Caching | Used to store Karma API results and blacklists, significantly improving registration speed and reducing external API load. |
+
 | **Nodemailer** | Email | reliable way to send transaction notifications (via the outbox processor). |
 
 ## 3. Key Decisions & Rationale
@@ -31,9 +31,9 @@ The Lendsqr Wallet MVP is a robust, secure, and scalable wallet service built us
 **Decision**: Every wallet transaction (fund, transfer, withdraw) triggers an entry in the `outbox` table within the same database transaction.
 **Reason**: This ensures "at-least-once" delivery of events. If the server crashes after updating the balance but before sending a notification, the Outbox Processor (a background task) will find the pending event and retry it. This is a critical pattern for financial services.
 
-### Karma API Caching & Parallel Verification
-**Decision**: Verify both email and phone number against the Adjutor Karma API in parallel using `Promise.all`, and cache the results.
-**Reason**: Parallelization reduces onboarding latency. Caching prevents repeatedly hitting the external API (and consuming credits/quota) for the same identity within a short window.
+### Karma API Parallel Verification
+**Decision**: Verify both email and phone number against the Adjutor Karma API in parallel using `Promise.all`.
+**Reason**: Parallelization reduces onboarding latency. A local `blacklisted_identities` database table persists confirmed blacklist hits, preventing redundant external API calls for the same identity.
 
 ### CUIDs for User IDs
 **Decision**: Using `@paralleldrive/cuid2` for primary keys instead of auto-incrementing integers.

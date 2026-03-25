@@ -17,7 +17,7 @@ A Minimum Viable Product (MVP) wallet service built as part of the Lendsqr engin
 - **Query Builder**: [KnexJS](https://knexjs.org/)
 - **Authentication**: JWT (Passport-like strategy with `bcryptjs` for hashing)
 - **External API**: Lendsqr Adjutor Karma API (Parallel email/phone verification)
-- **Caching**: `cache-manager` (In-memory caching for API responses and blacklists)
+
 - **Event Handling**: Outbox Pattern for reliable transactional messaging
 - **Validation**: `class-validator` & `class-transformer`
 - **Testing**: Jest (Unit & Integration)
@@ -26,7 +26,7 @@ A Minimum Viable Product (MVP) wallet service built as part of the Lendsqr engin
 
 ## E-R Diagram (Database Schema)
 
-The database architecture is designed for scalability and reliability, incorporating an Outbox pattern for event-driven consistency and a caching layer for identity verification.
+The database architecture is designed for scalability and reliability, incorporating an Outbox pattern for event-driven consistency and a local blacklist table for identity verification.
 
 ```mermaid
 erDiagram
