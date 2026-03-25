@@ -20,6 +20,7 @@ const config: { [key: string]: Knex.Config } = {
     migrations: {
       directory: path.join(__dirname, 'src/database/migrations'),
       extension: 'ts',
+      loadExtensions: ['.ts'],
     },
   },
   production: {
@@ -28,6 +29,7 @@ const config: { [key: string]: Knex.Config } = {
     migrations: {
       directory: path.join(__dirname, 'src/database/migrations'),
       extension: 'js',
+      loadExtensions: ['.js'],
     },
   },
 };
