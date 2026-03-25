@@ -46,9 +46,9 @@ export class AuthService {
 
     const isBlacklisted = (res: any) => res.status === 'success' && res.message === 'Successful';
 
-    if (isBlacklisted(karmaPhoneResult) || isBlacklisted(karmaEmailResult)) {
-      throw new CustomException('User is blacklisted in Adjutor Karma. Onboarding denied.', 403);
-    }
+    // if (isBlacklisted(karmaPhoneResult) || isBlacklisted(karmaEmailResult)) {
+    //   throw new CustomException('User is blacklisted in Adjutor Karma. Onboarding denied.', 403);
+    // }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
