@@ -18,7 +18,7 @@ const config: { [key: string]: Knex.Config } = {
     client: 'mysql2',
     connection: sharedConnection,
     migrations: {
-      directory: './src/database/migrations',
+      directory: path.join(__dirname, 'src/database/migrations'),
       extension: 'ts',
     },
   },
@@ -26,7 +26,7 @@ const config: { [key: string]: Knex.Config } = {
     client: 'mysql2',
     connection: sharedConnection,
     migrations: {
-      directory: path.join(__dirname, 'dist/src/database/migrations'),
+      directory: path.join(__dirname, 'src/database/migrations'),
       extension: 'js',
     },
   },
