@@ -171,3 +171,19 @@ Include the JWT token in the headers for all wallet routes: `Authorization: Bear
 **4. Withdraw Funds**
 - `POST /wallet/withdraw`
 - Body: `{ "amount": 250 }`
+
+### Transaction History (Requires Authorization Header)
+
+**1. Personal Transactions**
+- `GET /wallet/transactions`
+- Optional Query Parameters:
+  - `type`: "credit" or "debit"
+  - `page`: Page number (default: 1)
+  - `limit`: Results per page (default: 10)
+  - `startDate`: Filter by start date (ISO string)
+  - `endDate`: Filter by end date (ISO string)
+  - `reference`: Exact match for transaction reference
+
+**2. All Transactions (Admin Only)**
+- `GET /wallet/admin/transactions`
+- Accessible only by users with the `admin` role. Supports same query parameters as above.

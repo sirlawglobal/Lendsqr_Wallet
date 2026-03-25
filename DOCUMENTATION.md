@@ -60,5 +60,7 @@ The following core endpoints are available:
 - `POST /wallet/fund`: Add funds to your wallet.
 - `POST /wallet/transfer`: Transfer funds to another user via email.
 - `POST /wallet/withdraw`: Withdraw funds from your wallet.
+- `GET /wallet/transactions`: View personal transaction history (supports filtering).
+- `GET /wallet/admin/transactions`: View all system transactions (Admin only).
 
 For a detailed list of request bodies and headers, refer to the [README.md](README.md#api-documentation) file.
