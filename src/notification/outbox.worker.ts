@@ -15,15 +15,32 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly configService: ConfigService,
-  ) {}
+  ) { }
 
-  onModuleInit() {
+  async onModuleInit() {
+    const user = this.configService.get<string>('SMTP_USER');
+    const pass = this.configService.get<string>('SMTP_PASS');
+
+    if (!user || !pass) {
+      this.logger.error('SMTP_USER or SMTP_PASS is not defined in environment variables. Email notifications will fail.');
+      return;
+    }
+
     this.transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: this.configService.get<string>('SMTP_USER'),
-        pass: this.configService.get<string>('SMTP_PASS'),
+        user,
+        pass,
       },
+    });
+
+    // Verify connection on startup
+    this.transporter.verify((error) => {
+      if (error) {
+        this.logger.error(`SMTP connection error: ${error.message}`);
+      } else {
+        this.logger.log('SMTP server is ready to take our messages');
+      }
     });
 
     this.logger.log('Outbox Worker started. Polling every 5 seconds.');
@@ -51,10 +68,10 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
         try {
           // Mark as processing
           await this.knex('outbox').where({ id: msg.id }).update({ status: 'processing' });
-          
+
           this.logger.log(`Processing event: ${msg.event_type} for transaction ${msg.transaction_id}`);
           const payload = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
-          
+
           let toEmail = null;
           let subject = '';
           let html = '';
@@ -134,18 +151,18 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
           }
 
           // Mark as sent
-          await this.knex('outbox').where({ id: msg.id }).update({ 
-            status: 'sent', 
-            updated_at: this.knex.fn.now() 
+          await this.knex('outbox').where({ id: msg.id }).update({
+            status: 'sent',
+            updated_at: this.knex.fn.now()
           });
         } catch (error: any) {
           this.logger.error(`Failed to process message ${msg.id}: ${error.message}`);
           await this.knex('outbox')
             .where({ id: msg.id })
-            .update({ 
-               status: 'failed', 
-               retry_count: msg.retry_count + 1,
-               updated_at: this.knex.fn.now() 
+            .update({
+              status: 'failed',
+              retry_count: msg.retry_count + 1,
+              updated_at: this.knex.fn.now()
             });
         }
       }
