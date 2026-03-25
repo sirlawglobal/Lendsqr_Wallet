@@ -12,48 +12,72 @@ A Minimum Viable Product (MVP) wallet service built as part of the Lendsqr engin
 ---
 
 ## Tech Stack
-- **Framework**: [NestJS](https://nestjs.com/) (Node.js/TypeScript)
+- **Framework**: [NestJS](https://nestjs.com/) v11 (Node.js/TypeScript)
 - **Database**: MySQL 8.0
-- **ORM**: [KnexJS](https://knexjs.org/) (Query Builder for Node)
-- **Testing**: Jest (Comprehensive unit test coverage)
+- **Query Builder**: [KnexJS](https://knexjs.org/)
+- **Authentication**: JWT (Passport-like strategy with `bcryptjs` for hashing)
+- **External API**: Lendsqr Adjutor Karma API (Parallel email/phone verification)
+- **Caching**: `cache-manager` (In-memory caching for API responses and blacklists)
+- **Event Handling**: Outbox Pattern for reliable transactional messaging
 - **Validation**: `class-validator` & `class-transformer`
+- **Testing**: Jest (Unit & Integration)
 
 ---
 
 ## E-R Diagram (Database Schema)
 
-The core database architecture consists of three tables mapping fundamental entities mapping user information, wallets, and their transactional movement.
+The database architecture is designed for scalability and reliability, incorporating an Outbox pattern for event-driven consistency and a caching layer for identity verification.
 
 ```mermaid
 erDiagram
-    USERS ||--|| WALLETS : "has one"
-    USERS ||--o{ TRANSACTIONS : "performs"
-
-    USERS {
-        int id PK
+    users ||--|| wallets : "owns"
+    users ||--o{ transactions : "initiates"
+    transactions ||--o| outbox : "triggers"
+    
+    users {
+        string id PK "CUID"
         string name
         string email UK
         string phone UK
         string password_hash
+        enum role "user, admin"
         timestamp created_at
         timestamp updated_at
     }
 
-    WALLETS {
+    wallets {
         int id PK
-        int user_id FK, UK
-        decimal balance "Default 0.00"
+        string user_id FK, UK
+        decimal balance "15,2"
         timestamp created_at
         timestamp updated_at
     }
 
-    TRANSACTIONS {
+    transactions {
         int id PK
-        int user_id FK
-        enum type "'credit' or 'debit'"
+        string user_id FK
+        enum type "credit, debit"
         decimal amount
         string reference UK
         text description
+        timestamp created_at
+    }
+
+    outbox {
+        int id PK
+        string event_type
+        json payload
+        enum status "pending, processing, sent, failed"
+        int retry_count
+        int transaction_id FK
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    blacklisted_identities {
+        string id PK "CUID"
+        string identity UK "email/phone"
+        string reason
         timestamp created_at
     }
 ```

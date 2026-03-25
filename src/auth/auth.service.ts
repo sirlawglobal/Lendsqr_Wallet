@@ -23,17 +23,30 @@ export class AuthService {
   async register(registerDto: RegisterDto) {
     const { name, email, phone, password } = registerDto;
 
-    // Check if email already exists
+    // Check if email or phone already exists
     const existingUser = await this.knex('users')
       .where({ email: email.toLowerCase() })
+      .orWhere({ phone: phone.trim() })
       .first();
+
     if (existingUser) {
-      throw new CustomException('Email already registered', 409);
+      if (existingUser.email === email.toLowerCase()) {
+        throw new CustomException('Email already registered', 409);
+      }
+      if (existingUser.phone === phone.trim()) {
+        throw new CustomException('Phone number already registered', 409);
+      }
     }
 
-    // Blacklist check via Adjutor Karma API
-    const karmaResult = await this.verificationService.checkKarma(phone.trim());
-    if (karmaResult.status === 'success' && karmaResult.message === 'Successful') {
+    // Blacklist check via Adjutor Karma API (Phone & Email)
+    const [karmaPhoneResult, karmaEmailResult] = await Promise.all([
+      this.verificationService.checkKarma(phone.trim()),
+      this.verificationService.checkKarma(email.trim().toLowerCase()),
+    ]);
+
+    const isBlacklisted = (res: any) => res.status === 'success' && res.message === 'Successful';
+
+    if (isBlacklisted(karmaPhoneResult) || isBlacklisted(karmaEmailResult)) {
       throw new CustomException('User is blacklisted in Adjutor Karma. Onboarding denied.', 403);
     }
 
@@ -52,7 +65,7 @@ export class AuthService {
         });
 
       await trx('wallets').insert({ user_id: newUserId, balance: 0 });
-      
+
       await trx('outbox').insert({
         event_type: 'ACCOUNT_CREATED',
         payload: JSON.stringify({ userId: newUserId, name, email }),
