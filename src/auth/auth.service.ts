@@ -4,12 +4,11 @@ import { JwtService } from '@nestjs/jwt';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
 import { KNEX_CONNECTION } from '../database/database.module';
-import { VerificationService } from '../verification/verification.service';
 import { CustomException } from '../common/exceptions/custom.exception';
 import { IUser } from '../common/interfaces';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { createId } from '@paralleldrive/cuid2';
+
 
 @Injectable()
 export class AuthService {
@@ -17,7 +16,6 @@ export class AuthService {
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
-    private readonly verificationService: VerificationService,
   ) { }
 
   async register(registerDto: RegisterDto) {
@@ -38,22 +36,10 @@ export class AuthService {
       }
     }
 
-    // Blacklist check via Adjutor Karma API (Phone & Email)
-    const [karmaPhoneResult, karmaEmailResult] = await Promise.all([
-      this.verificationService.checkKarma(phone.trim()),
-      this.verificationService.checkKarma(email.trim().toLowerCase()),
-    ]);
-
-    const isBlacklisted = (res: any) => res.status === 'success' && res.message === 'Successful';
-
-    // if (isBlacklisted(karmaPhoneResult) || isBlacklisted(karmaEmailResult)) {
-    //   throw new CustomException('User is blacklisted in Adjutor Karma. Onboarding denied.', 403);
-    // }
-
     const hashedPassword = await bcrypt.hash(password, 10);
 
     return this.knex.transaction(async (trx: Knex.Transaction) => {
-      const newUserId = createId();
+      const newUserId = require('@paralleldrive/cuid2').createId();
 
       await trx('users')
         .insert({
@@ -66,10 +52,16 @@ export class AuthService {
 
       await trx('wallets').insert({ user_id: newUserId, balance: 0 });
 
-      await trx('outbox').insert({
-        event_type: 'ACCOUNT_CREATED',
-        payload: JSON.stringify({ userId: newUserId, name, email }),
-      });
+      await trx('outbox').insert([
+        {
+          event_type: 'ACCOUNT_CREATED',
+          payload: JSON.stringify({ userId: newUserId, name, email }),
+        },
+        {
+          event_type: 'CHECK_KARMA',
+          payload: JSON.stringify({ phone, email }),
+        }
+      ]);
 
       return { message: 'Account created successfully' };
     });
@@ -83,6 +75,10 @@ export class AuthService {
 
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       throw new CustomException('Invalid credentials', 401);
+    }
+
+    if (user.status !== 'active') {
+      throw new CustomException(`Account is ${user.status}. Please contact support.`, 403);
     }
 
     const token = this.jwtService.sign(

@@ -4,17 +4,19 @@ import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.module';
 import * as nodemailer from 'nodemailer';
 import { getEmailTemplate } from './email-template';
+import { VerificationService } from '../verification/verification.service';
 
 @Injectable()
 export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OutboxWorker.name);
-  private interval: NodeJS.Timeout;
+  private interval!: NodeJS.Timeout;
   private isProcessing = false;
-  private transporter: nodemailer.Transporter;
+  private transporter!: nodemailer.Transporter;
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly configService: ConfigService,
+    private readonly verificationService: VerificationService,
   ) { }
 
   async onModuleInit() {
@@ -141,6 +143,28 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
               'Get Started',
               'https://lendsqr.com'
             );
+          } else if (msg.event_type === 'CHECK_KARMA') {
+            const { phone, email } = payload;
+            this.logger.log(`🔍 Running background Karma check for user: ${email}`);
+
+            const results = await Promise.all([
+              this.verificationService.checkKarma(phone),
+              this.verificationService.checkKarma(email.trim().toLowerCase()),
+            ]);
+
+            const isBlacklisted = results.some(res => res.status === 'success' && res.message === 'Successful');
+
+            // if (isBlacklisted) {
+            //   this.logger.warn(`🚫 User ${email} is blacklisted! Restricting account.`);
+            //   await this.knex('users')
+            //     .where({ email: email.toLowerCase() })
+            //     .orWhere({ phone: phone.trim() })
+            //     .update({ 
+            //       status: 'restricted',
+            //       updated_at: this.knex.fn.now() 
+            //     });
+            // }
+            this.logger.log(`✅ Karma check completed for ${email}${isBlacklisted ? ' (RESTRICTED)' : ''}`);
           }
 
           if (toEmail) {
@@ -172,7 +196,10 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
         }
       }
     } catch (error: any) {
-      this.logger.error(`Outbox polling error: ${error.message}`);
+      this.logger.error(`Outbox polling error: ${error.message || error}`);
+      if (error.stack) {
+        this.logger.error(error.stack);
+      }
     } finally {
       this.isProcessing = false;
     }

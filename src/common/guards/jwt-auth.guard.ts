@@ -1,12 +1,15 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, ForbiddenException, Inject } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { Knex } from 'knex';
+import { KNEX_CONNECTION } from '../../database/database.module';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private jwtService: JwtService,
     private configService: ConfigService,
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -21,6 +24,13 @@ export class JwtAuthGuard implements CanActivate {
       });
       request.userId = payload.userId;
       request.userRole = payload.role;
+
+      // Check user status in DB
+      const user = await this.knex('users').where({ id: payload.userId }).select('status').first();
+      if (!user || user.status !== 'active') {
+        throw new ForbiddenException(`Account is ${user?.status || 'inactive'}`);
+      }
+
       return true;
     } catch {
       throw new UnauthorizedException('Invalid token');
