@@ -27,11 +27,16 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
     }
 
     this.transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: {
         user,
         pass,
       },
+      tls: {
+        rejectUnauthorized: false
+      }
     });
 
     // Verify connection on startup
