@@ -159,10 +159,19 @@ Two environment flags are provided for local development and CI pipelines:
 
 ---
 
-## 6. Unit Testing
+## 6. Testing Strategy
+
+### A. Unit Testing
 - **Coverage**: 100% business logic coverage in `src/**/*.spec.ts`, covering both positive (happy path) and negative (error/edge case) scenarios.
 - **Strategy**: Pure unit tests using NestJS's `Test.createTestingModule` with full mocking of Knex and external services via `jest.fn()`.
 - **Scope**: `AuthService`, `WalletService`, `VerificationService`, and `OutboxWorker` all have dedicated spec files.
+
+### B. End-to-End (E2E) Testing
+- **Scope**: Verifies high-level infrastructure components, including API routing, health checks, and security middleware.
+- **Key Tests**:
+    - `app.e2e-spec.ts`: Validates the `/health` endpoint and application initialization.
+    - `rate-limit.e2e-spec.ts`: Confirms that the `ThrottlerGuard` correctly enforces the 5-request-per-minute limit.
+- **ESM Configuration**: We solved standard Jest incompatibility with pure ESM packages (like `cuid2`) by implementing specific `transformIgnorePatterns` and `moduleNameMapper` rules in `test/jest-e2e.json`. This ensures complex dependencies are correctly transformed during test execution.
 
 ---
 

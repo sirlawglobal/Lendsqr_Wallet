@@ -179,13 +179,20 @@ npm run start:prod
 ```
 
 ### Testing
+The project includes a comprehensive test suite covering both unit and end-to-end (E2E) scenarios.
+
 ```bash
 # Run all unit tests
 npm test
 
+# Run E2E tests (configured for ESM compatibility)
+npm run test:e2e
+
 # With coverage report
 npm run test:cov
 ```
+
+**Note on E2E Setup**: The E2E environment is specially configured in `test/jest-e2e.json` to handle ESM-only packages like `cuid2` and `@noble/hashes` within a CommonJS/TypeScript environment.
 
 ---
 

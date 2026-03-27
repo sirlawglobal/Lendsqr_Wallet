@@ -5,72 +5,98 @@ describe('WalletService', () => {
   let walletService: WalletService;
   let mockKnex: any;
 
+  /**
+   * Creates a fully chainable Knex mock.
+   * ALL methods (where, first, forUpdate, insert, etc.) return the SAME mock
+   * object so any chain depth works. When awaited, it resolves to `finalValue`.
+   */
   const createMockChain = (finalValue: any) => {
     const mock: any = jest.fn(() => mock);
     const methods = [
-      'where', 'orWhere', 'first', 'forUpdate', 'increment', 
-      'decrement', 'insert', 'orderBy', 'limit', 'offset', 
-      'update', 'count', 'clone', 'delete', 'andWhere', 'returning'
+      'where', 'orWhere', 'first', 'forUpdate', 'increment',
+      'decrement', 'insert', 'orderBy', 'limit', 'offset',
+      'update', 'count', 'clone', 'delete', 'andWhere', 'returning', 'select',
     ];
-    methods.forEach(m => mock[m] = jest.fn(() => mock));
-    
-    // Promise behavior
-    mock.then = jest.fn((resolve) => Promise.resolve(finalValue).then(resolve));
-    mock.catch = jest.fn((reject) => Promise.resolve(finalValue).catch(reject));
-    
+    methods.forEach(m => (mock[m] = jest.fn(() => mock)));
+    mock.then = jest.fn((resolve: any) => Promise.resolve(finalValue).then(resolve));
+    mock.catch = jest.fn((reject: any) => Promise.resolve(finalValue).catch(reject));
     return mock;
+  };
+
+  /**
+   * Creates a Knex transaction mock (trx) that returns the same chainable mock
+   * for every table call. Pass in overrides per table if you need specific
+   * resolved values for individual queries.
+   */
+  const createTrx = (defaultFinalValue: any = null) => {
+    // A single shared chain that resolves to defaultFinalValue
+    const baseChain = createMockChain(defaultFinalValue);
+    // trx itself is callable (e.g. trx('wallets')) and returns the baseChain
+    const trx: any = jest.fn(() => baseChain);
+    // Expose the chain methods directly on trx for tests that call trx.insert etc.
+    Object.assign(trx, baseChain);
+    trx.fn = { now: jest.fn(() => 'now') };
+    return { trx, baseChain };
   };
 
   beforeEach(() => {
     mockKnex = jest.fn(() => createMockChain(null));
     mockKnex.transaction = jest.fn();
-
-    walletService = new WalletService(mockKnex);
+    mockKnex.fn = { now: jest.fn(() => 'now') };
   });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // ─── getBalance ─────────────────────────────────────────────────────────────
 
   describe('getBalance', () => {
     it('should return wallet balance for a valid user', async () => {
-      const walletData = { user_id: 1, balance: '500.00' };
-      const chain = createMockChain(walletData);
-      mockKnex.mockReturnValue(chain);
-
-      const result = await walletService.getBalance('1');
+      mockKnex.mockReturnValue(createMockChain({ user_id: 'u1', balance: '500.00' }));
+      const result = await walletService.getBalance('u1');
       expect(result).toEqual({ balance: 500 });
     });
 
     it('should throw if wallet is not found', async () => {
-      const chain = createMockChain(null);
-      mockKnex.mockReturnValue(chain);
-
+      mockKnex.mockReturnValue(createMockChain(null));
       await expect(walletService.getBalance('999')).rejects.toThrow(CustomException);
+      await expect(walletService.getBalance('999')).rejects.toThrow('Wallet not found');
+    });
+
+    beforeEach(() => {
+      walletService = new WalletService(mockKnex);
     });
   });
 
+  // ─── fund ───────────────────────────────────────────────────────────────────
+
   describe('fund', () => {
+    beforeEach(() => {
+      walletService = new WalletService(mockKnex);
+    });
+
     it('should fund wallet successfully', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx = createMockChain([1]); // default for insert/returning
-        trx.first.mockResolvedValue({ user_id: 1, balance: '100.00' });
+        // Every chain resolves: wallet lookup → { balance: '100.00' }, insert → [1]
+        const { trx, baseChain } = createTrx({ user_id: 'u1', balance: '100.00' });
+        // insert needs to resolve to [1] so destructuring works
+        baseChain.insert = jest.fn(() => createMockChain([1]));
         return callback(trx);
       });
 
-      const result = await walletService.fund('1', 200, 'ref_123');
+      const result = await walletService.fund('u1', 200, 'ref_123');
       expect(result).toEqual({ message: 'Funded successfully' });
     });
 
     it('should throw if amount is zero or negative', async () => {
-      await expect(walletService.fund('1', 0)).rejects.toThrow('Amount must be positive');
-      await expect(walletService.fund('1', -50)).rejects.toThrow('Amount must be positive');
+      await expect(walletService.fund('u1', 0)).rejects.toThrow('Amount must be positive');
+      await expect(walletService.fund('u1', -50)).rejects.toThrow('Amount must be positive');
     });
 
     it('should throw if wallet is not found during funding', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn();
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue(null),
-          }),
-        });
+        const { trx } = createTrx(null); // wallet lookup resolves to null
         return callback(trx);
       });
 
@@ -78,126 +104,126 @@ describe('WalletService', () => {
     });
   });
 
+  // ─── transfer ───────────────────────────────────────────────────────────────
+
   describe('transfer', () => {
+    beforeEach(() => {
+      walletService = new WalletService(mockKnex);
+    });
+
     it('should transfer funds successfully', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn(() => trx);
-        const methods = ['where', 'first', 'forUpdate', 'increment', 'decrement', 'insert'];
-        methods.forEach(m => trx[m] = jest.fn(() => trx));
+        // We need sequential resolves per table call
+        const recipientChain = createMockChain({ id: 'u2', email: 'recipient@example.com' });
+        const senderWalletChain = createMockChain({ user_id: 'u1', balance: '500.00' });
+        const recipientWalletChain = createMockChain({ user_id: 'u2', balance: '100.00' });
+        const insertChain = createMockChain([1]);
+        const mutationChain = createMockChain(1); // for decrement/increment
 
-        // 1: recipient lookup
-        trx.first.mockResolvedValueOnce({ id: 2, email: 'recipient@example.com' });
-        // 2: sender wallet lookup
-        trx.forUpdate.mockResolvedValueOnce({ user_id: 1, balance: '500.00' });
-        // 3: recipient wallet lookup
-        trx.forUpdate.mockResolvedValueOnce({ user_id: 2, balance: '100.00' });
-        
-        trx.insert.mockResolvedValue([1]);
-        
+        let callCount = 0;
+        const trx: any = jest.fn(() => {
+          callCount++;
+          // 1: users (recipient lookup), 2: wallets (sender), 3: wallets (recipient)
+          // 4+: transactions/outbox inserts
+          if (callCount === 1) return recipientChain;
+          if (callCount === 2) return senderWalletChain;
+          if (callCount === 3) return recipientWalletChain;
+          if (callCount === 4 || callCount === 5) return mutationChain; // decrement/increment
+          return insertChain;
+        });
         return callback(trx);
       });
 
-      const result = await walletService.transfer('1', 'recipient@example.com', 100);
+      const result = await walletService.transfer('u1', 'recipient@example.com', 100);
       expect(result.message).toBe('Transfer successful');
       expect(result.reference).toBeDefined();
     });
 
     it('should throw if amount is zero or negative', async () => {
-      await expect(walletService.transfer('1', 'r@example.com', 0)).rejects.toThrow('Amount must be positive');
-      await expect(walletService.transfer('1', 'r@example.com', -10)).rejects.toThrow('Amount must be positive');
+      await expect(walletService.transfer('u1', 'r@example.com', 0)).rejects.toThrow('Amount must be positive');
+      await expect(walletService.transfer('u1', 'r@example.com', -10)).rejects.toThrow('Amount must be positive');
     });
 
     it('should throw if recipient does not exist', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn();
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue(null),
-          }),
-        });
+        const { trx } = createTrx(null); // all lookups return null → recipient not found
         return callback(trx);
       });
 
-      await expect(walletService.transfer('1', 'nobody@example.com', 100)).rejects.toThrow('Recipient not found');
+      await expect(walletService.transfer('u1', 'nobody@example.com', 100)).rejects.toThrow('Recipient not found');
     });
 
     it('should throw if sender tries to transfer to themselves', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn().mockReturnThis();
-        trx.where = jest.fn().mockReturnThis();
-        trx.first = jest.fn().mockResolvedValue({ id: '1', email: 'sender@example.com' });
+        const recipientChain = createMockChain({ id: 'u1', email: 'sender@example.com' }); // same id as sender
+        const trx: any = jest.fn(() => recipientChain);
         return callback(trx);
       });
 
-      await expect(walletService.transfer('1', 'sender@example.com', 100)).rejects.toThrow('Cannot transfer to yourself');
+      await expect(walletService.transfer('u1', 'sender@example.com', 100)).rejects.toThrow('Cannot transfer to yourself');
     });
 
     it('should throw if sender has insufficient balance', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn().mockReturnThis();
-        trx.where = jest.fn().mockReturnThis();
-        trx.first = jest.fn();
-        trx.forUpdate = jest.fn();
+        const recipientChain = createMockChain({ id: 'u2', email: 'recipient@example.com' });
+        const senderWalletChain = createMockChain({ user_id: 'u1', balance: '50.00' }); // low balance
 
-        // recipient found
-        trx.first.mockResolvedValueOnce({ id: '2', email: 'recipient@example.com' });
-        // sender wallet with low balance
-        trx.forUpdate.mockResolvedValueOnce({ user_id: '1', balance: '50.00' });
-
+        let callCount = 0;
+        const trx: any = jest.fn(() => {
+          callCount++;
+          if (callCount === 1) return recipientChain;
+          return senderWalletChain;
+        });
         return callback(trx);
       });
 
-      await expect(walletService.transfer('1', 'recipient@example.com', 100)).rejects.toThrow('Insufficient balance');
+      await expect(walletService.transfer('u1', 'recipient@example.com', 100)).rejects.toThrow('Insufficient balance');
     });
 
     it('should throw if sender wallet is not found', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn().mockReturnThis();
-        trx.where = jest.fn().mockReturnThis();
-        trx.first = jest.fn();
-        trx.forUpdate = jest.fn();
+        const recipientChain = createMockChain({ id: 'u2', email: 'recipient@example.com' });
+        const noWalletChain = createMockChain(null); // sender wallet not found
 
-        // recipient found
-        trx.first.mockResolvedValueOnce({ id: '2', email: 'recipient@example.com' });
-        // sender wallet not found
-        trx.forUpdate.mockResolvedValueOnce(null);
-
+        let callCount = 0;
+        const trx: any = jest.fn(() => {
+          callCount++;
+          if (callCount === 1) return recipientChain;
+          return noWalletChain;
+        });
         return callback(trx);
       });
 
-      await expect(walletService.transfer('1', 'recipient@example.com', 100)).rejects.toThrow('Sender wallet not found');
+      await expect(walletService.transfer('u1', 'recipient@example.com', 100)).rejects.toThrow('Sender wallet not found');
     });
   });
 
+  // ─── withdraw ───────────────────────────────────────────────────────────────
+
   describe('withdraw', () => {
+    beforeEach(() => {
+      walletService = new WalletService(mockKnex);
+    });
+
     it('should withdraw funds successfully', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn(() => trx);
-        const methods = ['where', 'first', 'forUpdate', 'decrement', 'insert'];
-        methods.forEach(m => trx[m] = jest.fn(() => trx));
-        
-        trx.forUpdate.mockResolvedValue({ user_id: 1, balance: '500.00' });
-        trx.insert.mockResolvedValue([1]);
+        const { trx, baseChain } = createTrx({ user_id: 'u1', balance: '500.00' });
+        baseChain.insert = jest.fn(() => createMockChain([1]));
         return callback(trx);
       });
 
-      const result = await walletService.withdraw('1', 100);
+      const result = await walletService.withdraw('u1', 100);
       expect(result).toEqual({ message: 'Withdrawal successful' });
     });
 
     it('should throw if amount is zero or negative', async () => {
-      await expect(walletService.withdraw('1', 0)).rejects.toThrow('Amount must be positive');
-      await expect(walletService.withdraw('1', -20)).rejects.toThrow('Amount must be positive');
+      await expect(walletService.withdraw('u1', 0)).rejects.toThrow('Amount must be positive');
+      await expect(walletService.withdraw('u1', -20)).rejects.toThrow('Amount must be positive');
     });
 
     it('should throw if wallet is not found', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn();
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue(null),
-          }),
-        });
+        const { trx } = createTrx(null);
         return callback(trx);
       });
 
@@ -206,16 +232,15 @@ describe('WalletService', () => {
 
     it('should throw if insufficient balance for withdrawal', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn().mockReturnThis();
-        trx.where = jest.fn().mockReturnThis();
-        trx.first = jest.fn().mockReturnThis();
-        trx.forUpdate = jest.fn().mockResolvedValue({ user_id: '1', balance: '30.00' });
+        const { trx } = createTrx({ user_id: 'u1', balance: '30.00' }); // low balance
         return callback(trx);
       });
 
-      await expect(walletService.withdraw('1', 100)).rejects.toThrow('Insufficient balance');
+      await expect(walletService.withdraw('u1', 100)).rejects.toThrow('Insufficient balance');
     });
   });
+
+  // ─── transaction fetching ───────────────────────────────────────────────────
 
   describe('transaction fetching', () => {
     let mockQueryBuilder: any;
@@ -225,12 +250,13 @@ describe('WalletService', () => {
         where: jest.fn().mockReturnThis(),
         clone: jest.fn().mockReturnThis(),
         count: jest.fn().mockReturnThis(),
-        first: jest.fn(),
+        first: jest.fn().mockResolvedValue({ total: 0 }),
         orderBy: jest.fn().mockReturnThis(),
         limit: jest.fn().mockReturnThis(),
-        offset: jest.fn(),
+        offset: jest.fn().mockResolvedValue([]),
       };
       mockKnex.mockReturnValue(mockQueryBuilder);
+      walletService = new WalletService(mockKnex);
     });
 
     it('should fetch transactions for a specific user with pagination', async () => {
@@ -245,6 +271,15 @@ describe('WalletService', () => {
       expect(mockQueryBuilder.where).toHaveBeenCalledWith({ user_id: 'user1' });
       expect(mockQueryBuilder.limit).toHaveBeenCalledWith(10);
       expect(mockQueryBuilder.offset).toHaveBeenCalledWith(0);
+    });
+
+    it('should fetch all transactions for admin without user filter', async () => {
+      mockQueryBuilder.first.mockResolvedValue({ total: 0 });
+      mockQueryBuilder.offset.mockResolvedValue([]);
+
+      const result = await walletService.getAllTransactions({ page: 1, limit: 10 });
+      expect(result.transactions).toEqual([]);
+      expect(result.meta.total).toBe(0);
     });
 
     it('should apply filters (type, date, reference)', async () => {

@@ -19,11 +19,11 @@ describe('Auth Rate Limiting (e2e)', () => {
     await app.close();
   });
 
-  it('should return 429 after 10 requests to /auth/login', async () => {
+  it('should return 429 after 5 requests to /auth/login', async () => {
     const server = app.getHttpServer();
     
-    // Send 10 requests (limit is 10)
-    for (let i = 0; i < 10; i++) {
+    // Send 5 requests (limit is 5)
+    for (let i = 0; i < 5; i++) {
         await request(server)
             .post('/auth/login')
             .send({ email: 'test@example.com', password: 'password' })
@@ -34,17 +34,17 @@ describe('Auth Rate Limiting (e2e)', () => {
             });
     }
 
-    // 11th request should fail with 429
+    // 6th request should fail with 429
     await request(server)
       .post('/auth/login')
       .send({ email: 'test@example.com', password: 'password' })
       .expect(429);
   }, 30000); // 30s timeout for the loop
 
-  it('should return 429 after 10 requests to /auth/register', async () => {
+  it('should return 429 after 5 requests to /auth/register', async () => {
     const server = app.getHttpServer();
     
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 5; i++) {
         await request(server)
             .post('/auth/register')
             .send({ name: 'Test', email: 'test@example.com', phone: '08011111111', password: 'password' })
