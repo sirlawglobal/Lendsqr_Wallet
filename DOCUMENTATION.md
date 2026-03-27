@@ -177,6 +177,9 @@ Two environment flags are provided for local development and CI pipelines:
 
 ## 7. API Deep-Dive
 
+### Swagger UI
+Interactive API documentation is generated using `@nestjs/swagger` and is available at `/api` when the server is running.
+
 ### System Health
 - **GET /health**: Returns `{ "status": "ok", "uptime": number }`.
 

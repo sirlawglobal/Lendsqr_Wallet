@@ -198,6 +198,10 @@ npm run test:cov
 
 ## 6. API Reference Summary
 
+### Swagger Documentation
+The interactive API documentation is available via Swagger UI. Once the application is running, navigate to:
+**`http://localhost:3000/api`**
+
 ### System
 - `GET /health`: Monitor API health and uptime.
 
