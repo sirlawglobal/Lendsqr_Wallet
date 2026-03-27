@@ -13,13 +13,23 @@ describe('VerificationService', () => {
     mockedAxios.create.mockReturnValue({
       get: mockGet,
     } as any);
-    mockedAxios.isAxiosError = jest.fn();
+    (mockedAxios.isAxiosError as any) = jest.fn();
 
     const mockConfigService = {
       get: jest.fn().mockReturnValue('test-adjutor-key'),
     } as any;
 
-    verificationService = new VerificationService(mockConfigService);
+    const createMockChain = (finalValue: any) => {
+      const mockChain: any = jest.fn(() => mockChain);
+      mockChain.where = jest.fn(() => mockChain);
+      mockChain.first = jest.fn(() => Promise.resolve(finalValue));
+      mockChain.insert = jest.fn(() => Promise.resolve([1]));
+      return mockChain;
+    };
+
+    const mockKnex = jest.fn((table) => createMockChain(null)) as any;
+
+    verificationService = new VerificationService(mockConfigService, mockKnex);
   });
 
   describe('checkKarma', () => {

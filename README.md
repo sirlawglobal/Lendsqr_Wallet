@@ -1,32 +1,31 @@
-# Lendsqr Wallet MVP
+# Lendsqr Wallet MVP - Design Document
 
-A Minimum Viable Product (MVP) wallet service built as part of the Lendsqr engineering assessment. It provides core functionality for user onboarding, funding, transfers, and withdrawals, paired with faux token-based authentication and integration with the Lendsqr Adjutor Karma blacklist API.
+## 1. Project Overview
+Demo Credit is a mobile lending application requiring robust wallet functionality. This service provides the Minimum Viable Product (MVP) core: user onboarding with automated blacklist verification, wallet funding, peer-to-peer transfers, and withdrawals.
 
-## Core Features
-1. **User Onboarding & Authentication**: Account creation with validation. Users listed in the Lendsqr Adjutor Karma blacklist are structurally denied onboarding. Includes faux token-based auth using JWTs.
-2. **Wallet Management**: Every user has an auto-provisioned wallet upon registration.
-3. **Account Funding**: Users can fund their wallets.
-4. **Peer-to-Peer Transfers**: Users can transfer funds between their wallets and other users' wallets via email.
-5. **Withdrawals**: Users can withdraw funds from their wallets.
-
----
-
-## Tech Stack
-- **Framework**: [NestJS](https://nestjs.com/) v11 (Node.js/TypeScript)
-- **Database**: MySQL 8.0
-- **Query Builder**: [KnexJS](https://knexjs.org/)
-- **Authentication**: JWT (Passport-like strategy with `bcryptjs` for hashing)
-- **External API**: Lendsqr Adjutor Karma API (Parallel email/phone verification)
-
-- **Event Handling**: Outbox Pattern for reliable transactional messaging
-- **Validation**: `class-validator` & `class-transformer`
-- **Testing**: Jest (Unit & Integration)
+### Core Features
+- **Automated Onboarding**: New users are verified against the **Lendsqr Adjutor Karma API** in the background.
+- **Early Blacklist Rejection**: Proactive check against local blacklist to immediately block repeat offenders.
+- **Transaction Integrity**: Uses the **Outbox Pattern** to ensure data consistency between wallet balances and external notifications.
+- **Wallet Operations**: Secure funding, transfers, and withdrawals with full ACID compliance.
+- **Transaction History**: Comprehensive filtering and pagination for user and admin audit trails.
 
 ---
 
-## E-R Diagram (Database Schema)
+## 2. Technical Stack & Rationale
+| Component | Technology | Rationale |
+| :--- | :--- | :--- |
+| **Language** | TypeScript | Type safety and enhanced developer productivity for financial logic. |
+| **Framework** | NestJS (v11) | Structured patterns (DI, Modules) promoting high code quality and testability. |
+| **Database** | MySQL 8.0 | Reliable, relational ACID-compliant storage for financial ledgers. |
+| **Query Builder** | KnexJS | Assessment-preferred choice; provides granular SQL control and efficient migrations without the overhead of a heavy ORM. |
+| **Auth** | JWT | Stateless, secure authentication strategy. |
+| **ID Generation** | CUID2 | Secure, collision-resistant, and non-sequential identifiers (via `@paralleldrive/cuid2`). |
 
-The database architecture is designed for scalability and reliability, incorporating an Outbox pattern for event-driven consistency and a local blacklist table for identity verification.
+---
+
+## 3. Database Architecture (E-R Diagram)
+The schema is optimized for consistency and follow the **Outbox Pattern** for event-driven reliability.
 
 ```mermaid
 erDiagram
@@ -41,16 +40,14 @@ erDiagram
         string phone UK
         string password_hash
         enum role "user, admin"
+        enum status "active, restricted, deactivated, pending"
         timestamp created_at
-        timestamp updated_at
     }
 
     wallets {
         int id PK
         string user_id FK, UK
         decimal balance "15,2"
-        timestamp created_at
-        timestamp updated_at
     }
 
     transactions {
@@ -71,7 +68,6 @@ erDiagram
         int retry_count
         int transaction_id FK
         timestamp created_at
-        timestamp updated_at
     }
 
     blacklisted_identities {
@@ -84,106 +80,68 @@ erDiagram
 
 ---
 
-## Setup & Running Locally
+## 4. Setup & Installation
 
-### 1. Prerequisites
-- Docker & Docker Compose (for the MySQL database)
-- Node.js (LTS recommended)
-- npm or yarn
+### Prerequisites
+- Node.js (LTS)
+- MySQL 8.0 (Local or Docker)
+- Adjutor API Key
 
-### 2. Environment Configuration
-Clone the repository, verify `.env` is setup. A sample `.env.example` has been provided.
+### Configuration
+1. Clone the repository and install dependencies:
+   ```bash
+   npm install
+   ```
+2. Create your `.env` file (see `.env.example`):
+   ```bash
+   cp .env.example .env
+   ```
+3. Run migrations to scaffold the database:
+   ```bash
+   npm run migrate
+   ```
 
+### Running the Application
 ```bash
-cp .env.example .env
-```
-Ensure you add your actual Adjutor API Key to `ADJUTOR_API_KEY`.
-
-### 3. Start Database (Docker)
-A `docker-compose.yml` file is provided to spin up MySQL and phpMyAdmin.
-
-```bash
-docker-compose up -d
-```
-
-### 4. Install Dependencies
-```bash
-npm install
-```
-
-### 5. Run Database Migrations
-Run the Knex migrations to scaffold the tables.
-```bash
-npm run migrate
-```
-
-### 6. Start the Server
-```bash
-# development mode
+# Development
 npm run start:dev
+
+# Production (Build & Start)
+npm run build
+npm run start:prod
 ```
 
-The server will be available at `https://akanji-lawrence-lendsqr-be-test.onrender.com`.
-
----
-
-## Testing
-
-The project has comprehensive unit tests covering positive and negative edge cases across authentication, JWT validation, verification (Karma API), and wallet transactions (fund, transfer, withdraw, concurrency protection).
-
+### Testing
 ```bash
-# run unit tests
+# Run unit tests (including positive/negative scenarios)
 npm test
 ```
 
 ---
 
-## API Documentation
+## 5. API Reference Summary
 
-### Authentication
+### System
+- `GET /health`: Monitor API health and uptime.
 
-**1. Register Account**
-- `POST /auth/register`
-- Body: `{ "name": "John Doe", "email": "john@doe.com", "phone": "08012345678", "password": "securepassword" }`
-- Note: Registration will fail if the phone number is on the Adjutor Karma Blacklist.
+### Onboarding & Auth
+- `POST /auth/register`: Create account (triggers background Karma check).
+- `POST /auth/login`: Authenticate and get JWT token.
 
-**2. Login**
-- `POST /auth/login`
-- Body: `{ "email": "john@doe.com", "password": "securepassword" }`
-- Returns: `{ "token": "jwt..." }`
+### Wallet (Authorized)
+*All routes require `Authorization: Bearer <token>`*
+- `GET /wallet/balance`: Get current balance.
+- `POST /wallet/fund`: Add funds to wallet.
+- `POST /wallet/transfer`: Send funds to another user's email.
+- `POST /wallet/withdraw`: Withdraw funds.
+- `GET /wallet/transactions`: Filtered personal transaction history.
 
-### Wallet Operations (Requires Authorization Header)
-Include the JWT token in the headers for all wallet routes: `Authorization: Bearer <token>`
+### Admin
+- `GET /wallet/admin/transactions`: Global transaction audit log.
 
-**1. Get Balance**
-- `GET /wallet/balance`
-- Returns current wallet balance.
+---
 
-**2. Fund Wallet**
-- `POST /wallet/fund`
-- Body: `{ "amount": 1000, "reference": "opt_ref_123" }`
+## 6. Deployment
+The service is deployed at: `https://akanji-lawrence-lendsqr-be-test.onrender.com`
 
-**3. Transfer Funds**
-- `POST /wallet/transfer`
-- Body: `{ "recipientEmail": "jane@doe.com", "amount": 500 }`
-- Note: Checks sender balances to prevent overdawing, explicitly prevents self-transfers, records 2 transaction ledger entries.
-
-**4. Withdraw Funds**
-- `POST /wallet/withdraw`
-- Body: `{ "amount": 250 }`
-
-### Transaction History (Requires Authorization Header)
-
-**1. Personal Transactions**
-- `GET /wallet/transactions`
-- Optional Query Parameters:
-  - `type`: "credit" or "debit"
-  - `page`: Page number (default: 1)
-  - `limit`: Results per page (default: 10)
-  - `startDate`: Filter by start date (ISO string)
-  - `endDate`: Filter by end date (ISO string)
-  - `reference`: Exact match for transaction reference
-
-**2. All Transactions (Admin Only)**
-- `GET /wallet/admin/transactions`
-- Accessible only by users with the `admin` role. Supports same query parameters as above.
+*Note: For detailed technical rationale and implementation details, please refer to [DOCUMENTATION.md](DOCUMENTATION.md).*

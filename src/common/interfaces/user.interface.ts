@@ -5,7 +5,7 @@ export interface IUser {
   phone: string;
   password_hash: string;
   role: 'user' | 'admin';
-  status: 'active' | 'restricted' | 'deactivated';
+  status: 'active' | 'restricted' | 'deactivated' | 'pending';
   created_at: Date;
   updated_at: Date;
 }

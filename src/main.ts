@@ -1,4 +1,12 @@
 import { NestFactory } from '@nestjs/core';
+import * as net from 'net';
+
+
+// Force IPv4 as a priority. This fixes "Happy Eyeballs" connectivity issues 
+// on Node.js 22+ when connecting to Gmail or Adjutor on certain cloud networks.
+if (net.setDefaultAutoSelectFamily) {
+  net.setDefaultAutoSelectFamily(false);
+}
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';

@@ -22,23 +22,18 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     const user = this.configService.get<string>('SMTP_USER');
     const pass = this.configService.get<string>('SMTP_PASS');
+    const host = this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com';
+    const port = Number(this.configService.get<string>('SMTP_PORT')) || 465;
+    const secure = this.configService.get<string>('SMTP_SECURE') !== 'false';
 
     if (!user || !pass) {
-      this.logger.error('SMTP_USER or SMTP_PASS is not defined in environment variables. Email notifications will fail.');
+      this.logger.error('SMTP_USER or SMTP_PASS is not defined. Email notifications will fail.');
       return;
     }
 
     this.transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      auth: {
-        user,
-        pass,
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
+      service: 'gmail',
+      auth: { user, pass },
     });
 
     // Verify connection on startup
@@ -51,7 +46,10 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
     });
 
     this.logger.log('Outbox Worker started. Polling every 5 seconds.');
-    this.interval = setInterval(() => this.processOutbox(), 5000);
+    this.interval = setInterval(() => {
+      this.processOutbox();
+      this.recoverStuckJobs();
+    }, 5000);
   }
 
   onModuleDestroy() {
@@ -65,9 +63,15 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
     this.isProcessing = true;
 
     try {
-      // Find pending messages
+      // Find messages that are pending OR failed but due for retry
       const messages = await this.knex('outbox')
         .where('status', 'pending')
+        .orWhere(function () {
+          this.where('status', 'failed')
+            .andWhere('retry_count', '<', 5)
+            // Exponential backoff: retry after (retry_count * 2) minutes
+            .andWhere('updated_at', '<=', new Date(Date.now() - 1000 * 60 * 2)); 
+        })
         .orderBy('created_at', 'asc')
         .limit(10);
 
@@ -132,19 +136,8 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
                 `You have successfully withdrawn <span class="highlight">${payload.amount}</span> from your wallet.<br>Reference: <small>${payload.reference}</small>`,
               );
             }
-          } else if (msg.event_type === 'ACCOUNT_CREATED') {
-            toEmail = payload.email;
-            name = payload.name;
-            subject = '👋 Welcome to Lendsqr Wallet!';
-            html = getEmailTemplate(
-              subject,
-              name,
-              `Welcome to Lendsqr Wallet! Your account has been created successfully.<br><br>You can now fund your wallet and start making secure transfers immediately.`,
-              'Get Started',
-              'https://lendsqr.com'
-            );
           } else if (msg.event_type === 'CHECK_KARMA') {
-            const { phone, email } = payload;
+            const { userId, name: userName, phone, email } = payload;
             this.logger.log(`🔍 Running background Karma check for user: ${email}`);
 
             const results = await Promise.all([
@@ -152,19 +145,62 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
               this.verificationService.checkKarma(email.trim().toLowerCase()),
             ]);
 
+            // If either check resulted in an error (e.g. service down), throw to retry later
+            const serviceError = results.find(res => res.status === 'error');
+            if (serviceError) {
+              throw new Error(`Karma service error: ${serviceError.message}`);
+            }
+
             const isBlacklisted = results.some(res => res.status === 'success' && res.message === 'Successful');
 
-            // if (isBlacklisted) {
-            //   this.logger.warn(`🚫 User ${email} is blacklisted! Restricting account.`);
-            //   await this.knex('users')
-            //     .where({ email: email.toLowerCase() })
-            //     .orWhere({ phone: phone.trim() })
-            //     .update({ 
-            //       status: 'restricted',
-            //       updated_at: this.knex.fn.now() 
-            //     });
-            // }
-            this.logger.log(`✅ Karma check completed for ${email}${isBlacklisted ? ' (RESTRICTED)' : ''}`);
+            if (isBlacklisted) {
+              this.logger.warn(`🚫 User ${email} is blacklisted! Notifying and deleting account data.`);
+              
+              toEmail = email;
+              name = userName;
+              subject = '⚠️ Registration Update - Lendsqr Wallet';
+              html = getEmailTemplate(
+                subject,
+                name,
+                `Thank you for your interest in Lendsqr Wallet. Unfortunately, we are unable to process your registration at this time as your identity has been flagged in our security verification process (Karma Blacklist).<br><br>As a result, your pending account and all associated data have been permanently deleted from our system.`,
+                'Contact Support',
+                'https://lendsqr.com/support'
+              );
+
+              // Transactions and Wallets are deleted via CASCADE on user_id
+              await this.knex('users').where({ id: userId }).delete();
+              
+              this.logger.log(`🗑️ Data deleted for blacklisted user ${email}`);
+            } else {
+              this.logger.log(`✅ Karma check passed for ${email}. Activating account.`);
+              await this.knex('users').where({ id: userId }).update({
+                status: 'active',
+                updated_at: this.knex.fn.now()
+              });
+
+              toEmail = email;
+              name = userName;
+              subject = '👋 Welcome to Lendsqr Wallet!';
+              html = getEmailTemplate(
+                subject,
+                name,
+                `Welcome to Lendsqr Wallet! Your account has been verified and created successfully.<br><br>You can now fund your wallet and start making secure transfers immediately.`,
+                'Get Started',
+                'https://lendsqr.com'
+              );
+            }
+            this.logger.log(`✅ Karma check completed for ${email}${isBlacklisted ? ' (DELETED)' : ''}`);
+          } else if (msg.event_type === 'REGISTRATION_REJECTED') {
+            toEmail = payload.email;
+            name = payload.name;
+            subject = '⚠️ Registration Update - Lendsqr Wallet';
+            html = getEmailTemplate(
+              subject,
+              name,
+              `Thank you for your interest in Lendsqr Wallet. Unfortunately, we are unable to process your registration at this time as your identity has been flagged in our security verification process (Karma Blacklist).<br><br>As a result, your registration attempt has been rejected.`,
+              'Contact Support',
+              'https://lendsqr.com/support'
+            );
           }
 
           if (toEmail) {
@@ -202,6 +238,22 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
       }
     } finally {
       this.isProcessing = false;
+    }
+  }
+
+  async recoverStuckJobs() {
+    // Reset messages stuck in 'processing' for more than 10 minutes
+    const tenMinutesAgo = new Date(Date.now() - 1000 * 60 * 10);
+    const affected = await this.knex('outbox')
+      .where('status', 'processing')
+      .andWhere('updated_at', '<', tenMinutesAgo)
+      .update({
+        status: 'pending',
+        updated_at: this.knex.fn.now()
+      });
+
+    if (affected > 0) {
+      this.logger.warn(`♻️ Recovered ${affected} stuck outbox jobs.`);
     }
   }
 }

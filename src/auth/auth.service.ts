@@ -10,18 +10,37 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
 
+import { VerificationService } from '../verification/verification.service';
+
+
 @Injectable()
 export class AuthService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
+    private readonly verificationService: VerificationService,
   ) { }
 
   async register(registerDto: RegisterDto) {
     const { name, email, phone, password } = registerDto;
 
-    // Check if email or phone already exists
+    // 1. Immediate local blacklist check
+    const isBlacklisted = await Promise.all([
+      this.verificationService.isBlacklistedLocal(email.toLowerCase()),
+      this.verificationService.isBlacklistedLocal(phone.trim()),
+    ]);
+
+    if (isBlacklisted.some(b => b)) {
+      // Record rejection in outbox for notification, then block
+      await this.knex('outbox').insert({
+        event_type: 'REGISTRATION_REJECTED',
+        payload: JSON.stringify({ name, email, phone }),
+      });
+      throw new CustomException('Registration rejected. Your details have been flagged in our security system.', 403);
+    }
+
+    // 2. Check if email or phone already exists in users table
     const existingUser = await this.knex('users')
       .where({ email: email.toLowerCase() })
       .orWhere({ phone: phone.trim() })
@@ -48,22 +67,19 @@ export class AuthService {
           email: email.toLowerCase(),
           phone: phone.trim(),
           password_hash: hashedPassword,
+          status: 'pending',
         });
 
       await trx('wallets').insert({ user_id: newUserId, balance: 0 });
 
       await trx('outbox').insert([
         {
-          event_type: 'ACCOUNT_CREATED',
-          payload: JSON.stringify({ userId: newUserId, name, email }),
-        },
-        {
           event_type: 'CHECK_KARMA',
-          payload: JSON.stringify({ phone, email }),
+          payload: JSON.stringify({ userId: newUserId, name, email, phone }),
         }
       ]);
 
-      return { message: 'Account created successfully' };
+      return { message: 'Registration received. Your account is pending verification.' };
     });
   }
 
@@ -73,8 +89,16 @@ export class AuthService {
       .where({ email: email.toLowerCase() })
       .first();
 
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-      throw new CustomException('Invalid credentials', 401);
+    if (!user) {
+      throw new CustomException('Account not found', 404);
+    }
+
+    if (!(await bcrypt.compare(password, user.password_hash))) {
+      throw new CustomException('Invalid password', 401);
+    }
+
+    if (user.status === 'pending') {
+      throw new CustomException('Your account is still being verified. Please try again in a few moments.', 403);
     }
 
     if (user.status !== 'active') {

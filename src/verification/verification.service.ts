@@ -22,7 +22,20 @@ export class VerificationService {
     });
   }
 
+  async isBlacklistedLocal(identity: string): Promise<boolean> {
+    const blacklisted = await this.knex('blacklisted_identities')
+      .where({ identity })
+      .first();
+    return !!blacklisted;
+  }
+
   async checkKarma(identity: string): Promise<IKarmaResponse> {
+    // 0. Development/Test Bypass: Allow testing the onboarding flow if KARMA_CHECK_BYPASS is set
+    if (this.configService.get<string>('KARMA_CHECK_BYPASS') === 'true') {
+      this.logger.warn(`Bypassing Karma check for ${identity} (KARMA_CHECK_BYPASS=true)`);
+      return { status: 'success', message: 'Identity not found in karma list' };
+    }
+
     // 1. Check local blacklist first
     const isBlacklistedLocal = await this.knex('blacklisted_identities')
       .where({ identity })

@@ -14,7 +14,13 @@ describe('JwtAuthGuard', () => {
       get: jest.fn().mockReturnValue('test-secret'),
     };
 
-    guard = new JwtAuthGuard(mockJwtService, mockConfigService);
+    const mockKnex: any = jest.fn(() => ({
+      where: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      first: jest.fn().mockResolvedValue({ status: 'active' }),
+    }));
+
+    guard = new JwtAuthGuard(mockJwtService, mockConfigService, mockKnex);
   });
 
   const createMockExecutionContext = (authHeader?: string): ExecutionContext => {

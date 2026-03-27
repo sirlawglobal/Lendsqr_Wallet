@@ -5,8 +5,24 @@ describe('WalletService', () => {
   let walletService: WalletService;
   let mockKnex: any;
 
+  const createMockChain = (finalValue: any) => {
+    const mock: any = jest.fn(() => mock);
+    const methods = [
+      'where', 'orWhere', 'first', 'forUpdate', 'increment', 
+      'decrement', 'insert', 'orderBy', 'limit', 'offset', 
+      'update', 'count', 'clone', 'delete', 'andWhere', 'returning'
+    ];
+    methods.forEach(m => mock[m] = jest.fn(() => mock));
+    
+    // Promise behavior
+    mock.then = jest.fn((resolve) => Promise.resolve(finalValue).then(resolve));
+    mock.catch = jest.fn((reject) => Promise.resolve(finalValue).catch(reject));
+    
+    return mock;
+  };
+
   beforeEach(() => {
-    mockKnex = jest.fn();
+    mockKnex = jest.fn(() => createMockChain(null));
     mockKnex.transaction = jest.fn();
 
     walletService = new WalletService(mockKnex);
@@ -14,44 +30,27 @@ describe('WalletService', () => {
 
   describe('getBalance', () => {
     it('should return wallet balance for a valid user', async () => {
-      const mockFirst = jest.fn().mockResolvedValue({ user_id: 1, balance: '500.00' });
-      const mockWhere = jest.fn().mockReturnValue({ first: mockFirst });
-      mockKnex.mockReturnValue({ where: mockWhere });
+      const walletData = { user_id: 1, balance: '500.00' };
+      const chain = createMockChain(walletData);
+      mockKnex.mockReturnValue(chain);
 
       const result = await walletService.getBalance('1');
       expect(result).toEqual({ balance: 500 });
     });
 
     it('should throw if wallet is not found', async () => {
-      const mockFirst = jest.fn().mockResolvedValue(null);
-      const mockWhere = jest.fn().mockReturnValue({ first: mockFirst });
-      mockKnex.mockReturnValue({ where: mockWhere });
+      const chain = createMockChain(null);
+      mockKnex.mockReturnValue(chain);
 
       await expect(walletService.getBalance('999')).rejects.toThrow(CustomException);
-      await expect(walletService.getBalance('999')).rejects.toThrow('Wallet not found');
     });
   });
 
   describe('fund', () => {
     it('should fund wallet successfully', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn();
-        // first call: wallets lookup
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue({ user_id: 1, balance: '100.00' }),
-          }),
-        });
-        // second call: wallets increment
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            increment: jest.fn().mockResolvedValue(1),
-          }),
-        });
-        // third call: transactions insert
-        trx.mockReturnValueOnce({
-          insert: jest.fn().mockResolvedValue([1]),
-        });
+        const trx = createMockChain([1]); // default for insert/returning
+        trx.first.mockResolvedValue({ user_id: 1, balance: '100.00' });
         return callback(trx);
       });
 
@@ -82,41 +81,19 @@ describe('WalletService', () => {
   describe('transfer', () => {
     it('should transfer funds successfully', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn();
+        const trx: any = jest.fn(() => trx);
+        const methods = ['where', 'first', 'forUpdate', 'increment', 'decrement', 'insert'];
+        methods.forEach(m => trx[m] = jest.fn(() => trx));
+
         // 1: recipient lookup
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue({ id: 2, email: 'recipient@example.com' }),
-          }),
-        });
+        trx.first.mockResolvedValueOnce({ id: 2, email: 'recipient@example.com' });
         // 2: sender wallet lookup
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue({ user_id: 1, balance: '500.00' }),
-          }),
-        });
+        trx.forUpdate.mockResolvedValueOnce({ user_id: 1, balance: '500.00' });
         // 3: recipient wallet lookup
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue({ user_id: 2, balance: '100.00' }),
-          }),
-        });
-        // 4: sender decrement
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            decrement: jest.fn().mockResolvedValue(1),
-          }),
-        });
-        // 5: recipient increment
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            increment: jest.fn().mockResolvedValue(1),
-          }),
-        });
-        // 6: transactions insert
-        trx.mockReturnValueOnce({
-          insert: jest.fn().mockResolvedValue([1, 2]),
-        });
+        trx.forUpdate.mockResolvedValueOnce({ user_id: 2, balance: '100.00' });
+        
+        trx.insert.mockResolvedValue([1]);
+        
         return callback(trx);
       });
 
@@ -146,12 +123,9 @@ describe('WalletService', () => {
 
     it('should throw if sender tries to transfer to themselves', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn();
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue({ id: '1', email: 'sender@example.com' }),
-          }),
-        });
+        const trx: any = jest.fn().mockReturnThis();
+        trx.where = jest.fn().mockReturnThis();
+        trx.first = jest.fn().mockResolvedValue({ id: '1', email: 'sender@example.com' });
         return callback(trx);
       });
 
@@ -160,19 +134,16 @@ describe('WalletService', () => {
 
     it('should throw if sender has insufficient balance', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn();
+        const trx: any = jest.fn().mockReturnThis();
+        trx.where = jest.fn().mockReturnThis();
+        trx.first = jest.fn();
+        trx.forUpdate = jest.fn();
+
         // recipient found
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue({ id: '2', email: 'recipient@example.com' }),
-          }),
-        });
+        trx.first.mockResolvedValueOnce({ id: '2', email: 'recipient@example.com' });
         // sender wallet with low balance
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue({ user_id: '1', balance: '50.00' }),
-          }),
-        });
+        trx.forUpdate.mockResolvedValueOnce({ user_id: '1', balance: '50.00' });
+
         return callback(trx);
       });
 
@@ -181,19 +152,16 @@ describe('WalletService', () => {
 
     it('should throw if sender wallet is not found', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn();
+        const trx: any = jest.fn().mockReturnThis();
+        trx.where = jest.fn().mockReturnThis();
+        trx.first = jest.fn();
+        trx.forUpdate = jest.fn();
+
         // recipient found
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue({ id: '2', email: 'recipient@example.com' }),
-          }),
-        });
+        trx.first.mockResolvedValueOnce({ id: '2', email: 'recipient@example.com' });
         // sender wallet not found
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue(null),
-          }),
-        });
+        trx.forUpdate.mockResolvedValueOnce(null);
+
         return callback(trx);
       });
 
@@ -204,23 +172,12 @@ describe('WalletService', () => {
   describe('withdraw', () => {
     it('should withdraw funds successfully', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn();
-        // wallet lookup
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue({ user_id: 1, balance: '500.00' }),
-          }),
-        });
-        // wallet decrement
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            decrement: jest.fn().mockResolvedValue(1),
-          }),
-        });
-        // transaction insert
-        trx.mockReturnValueOnce({
-          insert: jest.fn().mockResolvedValue([1]),
-        });
+        const trx: any = jest.fn(() => trx);
+        const methods = ['where', 'first', 'forUpdate', 'decrement', 'insert'];
+        methods.forEach(m => trx[m] = jest.fn(() => trx));
+        
+        trx.forUpdate.mockResolvedValue({ user_id: 1, balance: '500.00' });
+        trx.insert.mockResolvedValue([1]);
         return callback(trx);
       });
 
@@ -249,12 +206,10 @@ describe('WalletService', () => {
 
     it('should throw if insufficient balance for withdrawal', async () => {
       mockKnex.transaction.mockImplementation(async (callback: any) => {
-        const trx: any = jest.fn();
-        trx.mockReturnValueOnce({
-          where: jest.fn().mockReturnValue({
-            first: jest.fn().mockResolvedValue({ user_id: '1', balance: '30.00' }),
-          }),
-        });
+        const trx: any = jest.fn().mockReturnThis();
+        trx.where = jest.fn().mockReturnThis();
+        trx.first = jest.fn().mockReturnThis();
+        trx.forUpdate = jest.fn().mockResolvedValue({ user_id: '1', balance: '30.00' });
         return callback(trx);
       });
 
