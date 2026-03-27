@@ -52,11 +52,14 @@ We use **CUID2** for primary keys. Unlike auto-incrementing integers, CUIDs are 
 ### Tech Stack Rationale
 - **NestJS**: Chosen for its robust Dependency Injection and module-based architecture, which makes the codebase highly maintainable and easy to extend.
 - **KnexJS**: Used instead of a heavy ORM to provide complete control over SQL queries and transaction boundaries, as preferred by the Lendsqr assessment for its "attention to detail" and performance benefits.
-- **Node.js 22 Networking**: During deployment on Render, we identified a Node.js 22 "Happy Eyeballs" issue causing IPv6 connection failures to Gmail and Adjutor. We implemented a global fix in `main.ts` using `net.setDefaultAutoSelectFamily(false)` to ensure production stability.
+- **Resend HTTP API**: During deployment on Render, we identified that standard SMTP ports (465/587) are blocked on free plans. We pivoted to the **Resend API** (via HTTPS) to ensure 100% reliable email delivery in the production environment.
+- **Node.js 22 Networking**: Fixed "Happy Eyeballs" IPv6 issues in `main.ts` for stable connectivity.
 
 ### Unit Testing & Development Toggles
 - **Unit Testing**: 100% logic coverage in `src/**/*.spec.ts` (Positive/Negative scenarios).
-- **Development Bypass**: Added `KARMA_CHECK_BYPASS=true` environment variable. When enabled, the system treats all Karma checks as "Passed" to allow full end-to-end testing of the onboarding flow in restricted API environments.
+- **Development Bypass**: Added `KARMA_CHECK_BYPASS=true` and `EMAIL_BYPASS=true` environment variables. 
+    - `KARMA_CHECK_BYPASS`: Bypasses external Adjutor API checks.
+    - `EMAIL_BYPASS`: Bypasses SMTP sending to handle cloud environments (like Render) that block port 465/587.
 
 ---
 

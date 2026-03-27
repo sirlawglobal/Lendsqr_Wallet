@@ -6,7 +6,7 @@ Demo Credit is a mobile lending application requiring robust wallet functionalit
 ### Core Features
 - **Automated Onboarding**: New users are verified against the **Lendsqr Adjutor Karma API** in the background.
 - **Early Blacklist Rejection**: Proactive check against local blacklist to immediately block repeat offenders.
-- **Transaction Integrity**: Uses the **Outbox Pattern** to ensure data consistency between wallet balances and external notifications.
+- **Transaction Integrity**: Uses the **Outbox Pattern** with **Resend HTTP Email API** to ensure reliable data consistency between wallet balances and external notifications.
 - **Wallet Operations**: Secure funding, transfers, and withdrawals with full ACID compliance.
 - **Transaction History**: Comprehensive filtering and pagination for user and admin audit trails.
 

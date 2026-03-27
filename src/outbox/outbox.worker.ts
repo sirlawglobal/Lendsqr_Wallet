@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.module';
 import * as nodemailer from 'nodemailer';
+import axios from 'axios';
 import { getEmailTemplate } from './email-template';
 import { VerificationService } from '../verification/verification.service';
 
@@ -11,7 +12,6 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OutboxWorker.name);
   private interval!: NodeJS.Timeout;
   private isProcessing = false;
-  private transporter!: nodemailer.Transporter;
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
@@ -20,31 +20,11 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
   ) { }
 
   async onModuleInit() {
-    const user = this.configService.get<string>('SMTP_USER');
-    const pass = this.configService.get<string>('SMTP_PASS');
-    const host = this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com';
-    const port = Number(this.configService.get<string>('SMTP_PORT')) || 465;
-    const secure = this.configService.get<string>('SMTP_SECURE') !== 'false';
+    this.logger.log('Outbox Worker initialized with Resend HTTP API.');
+    this.startPolling();
+  }
 
-    if (!user || !pass) {
-      this.logger.error('SMTP_USER or SMTP_PASS is not defined. Email notifications will fail.');
-      return;
-    }
-
-    this.transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user, pass },
-    });
-
-    // Verify connection on startup
-    this.transporter.verify((error) => {
-      if (error) {
-        this.logger.error(`SMTP connection error: ${error.message}`);
-      } else {
-        this.logger.log('SMTP server is ready to take our messages');
-      }
-    });
-
+  private startPolling() {
     this.logger.log('Outbox Worker started. Polling every 5 seconds.');
     this.interval = setInterval(() => {
       this.processOutbox();
@@ -204,13 +184,32 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
           }
 
           if (toEmail) {
-            await this.transporter.sendMail({
-              from: `"Lendsqr Wallet" <${this.configService.get<string>('SMTP_USER')}>`,
-              to: toEmail,
-              subject,
-              html,
-            });
-            this.logger.log(`✅ Styled Email Sent to ${toEmail} for event ${msg.event_type}`);
+            if (this.configService.get<string>('EMAIL_BYPASS') === 'true') {
+              this.logger.warn(`BYPASSING EMAIL SENDING (EMAIL_BYPASS=true) to ${toEmail}`);
+              this.logger.log(`Email Subject: ${subject}`);
+            } else {
+              try {
+                await axios.post(
+                  'https://api.resend.com/emails',
+                  {
+                    from: 'Lendsqr Wallet <onboarding@resend.dev>',
+                    to: toEmail,
+                    subject,
+                    html,
+                  },
+                  {
+                    headers: {
+                      Authorization: `Bearer ${this.configService.get<string>('RESEND_API_KEY')}`,
+                      'Content-Type': 'application/json',
+                    },
+                  },
+                );
+                this.logger.log(`✅ Resend Email Sent to ${toEmail} for event ${msg.event_type}`);
+              } catch (error: any) {
+                this.logger.error(`Resend API Error: ${error.response?.data?.message || error.message}`);
+                throw error; // Re-throw to trigger retry logic
+              }
+            }
           } else {
             this.logger.warn(`Could not determine recipient email for event ${msg.event_type}`);
           }
